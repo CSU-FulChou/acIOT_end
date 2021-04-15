@@ -15,7 +15,7 @@ import json
 from torchsummary import summary
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
-
+from http_client import url_head
 
 def make_env():
     def _thunk():
@@ -26,7 +26,7 @@ def make_env():
 
 # 从服务端获取参数：
 a2c_env_param = json.loads(requests.get(
-    'http://192.168.199.128:5000/get_a2c_env_param').text)
+    url_head+'get_a2c_env_param').text)
 num_envs = a2c_env_param['num_envs']
 env_name = a2c_env_param['env_name']
 envs = [make_env() for i in range(num_envs)]

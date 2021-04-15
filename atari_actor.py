@@ -25,7 +25,7 @@ from torchsummary import summary
 import requests
 import time
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+from http_client import url_head
 
 n_frames = 1
 gamma = 0.99
@@ -181,7 +181,7 @@ def update_model(states, probs_list, actions, action_value_pairs, action_rewards
         'action_rewards': action_rewards,
     }
     data = json.dumps(data) # 序列化
-    req = requests.post('http://192.168.199.128:5000/atari/ac', data=data)
+    req = requests.post(url_head+'atari/ac', data=data)
     params = json.loads(req.text)
     # print(params)
     params = {k:torch.Tensor(v) for k,v in params.items()}

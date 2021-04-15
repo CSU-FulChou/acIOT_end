@@ -10,9 +10,9 @@ from matplotlib.pyplot import step
 import requests
 import json
 
-
+url_head = 'http://172.18.166.44:5000/'
 def get_parameters():
-    req = requests.get('http://192.168.199.128:5000/getParameters')
+    req = requests.get(url_head+'getParameters')
     return req.text
 
 
@@ -44,7 +44,7 @@ def send_status_recv_parameter(states, actions, rewards, masks, dist_probs):
               'dist_probs': multi_list2dict(dist_probs),
               }
     status = json.dumps(status)
-    req = requests.post('http://192.168.199.128:5000/sendStatus', data=status)
+    req = requests.post(url_head+'sendStatus', data=status)
     return json.loads(req.text)
 
 
