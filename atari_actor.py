@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from numpy.core.einsumfunc import _einsum_path_dispatcher
 
 import torch
+from torch._C import set_anomaly_enabled
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -37,6 +38,7 @@ size = (82, 82)
 
 
 env = gym.make('Breakout-v0') # Breakout-v0 Atlantis-v0
+test_env = gym.make('Breakout-v0')
 SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
 
 class ActorCritic(nn.Module):
@@ -70,7 +72,7 @@ eps = np.finfo(np.float32).eps.item() # 非负最小值
 
 def select_action(actor_critic, state):
     state = torch.from_numpy(state).permute(2, 0, 1).unsqueeze(0).to(device)
-    probs, critic_value = actor_critic(state) # 0.2988, 0.2688, 0.2370, 0.1954
+    probs, critic_value = actor_critic(state) 
     m = Categorical(probs) # -1.2081, -1.3137, -1.4398, -1.6326
     action = m.sample() # [2]
     # print(m)
@@ -151,26 +153,42 @@ def main():
             if render:
                 env.render()
                 render = False
-            if step > 10 and sum(action_rewards) > 2: # 每10次就去update模型一下
-                # action_value_pairs = [ {
-                #     'log_prob':action_value_pair.log_prob.data.item(),
-                #     'value':action_value_pair.value.data.item(),
-                # }  for action_value_pair in model.episode_actions]
-                # action_rewards = model.episode_rewards
-                # states.pop() # 去掉最后一个多余的状态！
-                end1 = time.time()
-                print('time about interactive: ', end1-start)
-                update_model(states, probs_list, actions, action_rewards, model)
-                episode_reward.append(sum(action_rewards))
-                print('{} rewards is {}'.format(i_episode, episode_reward[-1]), episode_reward)
-                end2 = time.time()
-                print('time about update model', end2-end1)
-                step = 0
-                states.clear()
-                probs_list.clear()
-                actions.clear()
-                action_rewards.clear()
+        
+        end1 = time.time()
+        print('time about interactive: ', end1-start)
+        update_model(states, probs_list, actions, action_rewards, model)
+        episode_reward.append(sum(action_rewards))
+        print('{} rewards is {}'.format(i_episode, episode_reward[-1]), episode_reward)
+        end2 = time.time()
+        print('time about update model', end2-end1)
+        # step = 0
+        # states.clear()
+        # probs_list.clear()
+        # actions.clear()
+        # action_rewards.clear()
+        test_reward = np.mean([test_model(model) for i in range(10)])
+        print('episode: {i_episode}, rewards: {}'.format(test_reward, i_episode=i_episode))
+    torch.save('model_atari')
 
+def state2input(state):
+    state = Image.fromarray(state)
+    state = np.array(state.resize(size, Image.ANTIALIAS), dtype=np.float32) # 图像转换:
+    state = torch.from_numpy(state).permute(2, 0, 1).unsqueeze(0).to(device)
+    return state
+
+def test_model(model):
+    done = False
+    test_rewards = 0
+    state = test_env.reset()
+    input = state2input(state)
+    while not done:
+        probs, _ = model(input) 
+        m = Categorical(probs) 
+        action = m.sample()
+        nest_state, reward, done, _ = test_env.step(action)
+        input = state2input(nest_state)
+        test_rewards += reward
+    return test_rewards
 
 
 def update_model(states, probs_list, actions, action_rewards, model):
