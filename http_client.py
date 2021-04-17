@@ -10,7 +10,9 @@ from matplotlib.pyplot import step
 import requests
 import json
 
-url_head = 'http://172.18.166.44:5000/'
+# url_head = 'http://172.18.166.44:5000/'
+url_head = 'http://192.168.199.128:5000/'
+
 def get_parameters():
     req = requests.get(url_head+'getParameters')
     return req.text

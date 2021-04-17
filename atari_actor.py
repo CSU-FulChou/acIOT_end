@@ -122,6 +122,7 @@ def main():
     states = []
     probs_list = []
     actions = []
+    action_rewards = []
     episode_reward = []
     for i_episode in range(1, N_episodes + 1):
         start = time.time()
@@ -135,49 +136,51 @@ def main():
         else:
             done = False
         t = 0
+        step = 0
         while not done  and t < 10000:
             t += 1
+            step += 1
             action, probs = select_action(model, state)
             probs_list.append(probs.data.tolist())
             actions.append(action) # 离散动作：
             state, reward, done = collect_frames(n_frames, action, frame_list=[])
-            model.episode_rewards.append(reward)
+            action_rewards.append(reward)
+            # model.episode_rewards.append(reward)
             states.append(state.tolist())
             if reward == 1: render = True
             if render:
                 env.render()
                 render = False
-        
-        action_value_pairs = [ {
-            'log_prob':action_value_pair.log_prob.data.item(),
-            'value':action_value_pair.value.data.item(),
-        }  for action_value_pair in model.episode_actions]
-        action_rewards = model.episode_rewards
-        # TODO : 整理网络传输 rewards:
-        states.pop() # 去掉最后一个多余的状态！
-        end1 = time.time()
-        print('time about interactive: ', end1-start)
-        update_model(states, probs_list, actions, action_value_pairs, action_rewards, model)
-        episode_reward.append(sum(action_rewards))
-        print('{} rewards is {}'.format(i_episode, episode_reward[-1]), episode_reward)
-        end2 = time.time()
-        # finish_episode()# 改成通过网络通信 得到模型参数：
-        # running_time = running_time * 0.99 + t * 0.01
-        # if i_episode % log_interval == 0:
-        #     print('Episode {}\tLast Length: {:5d}\tAverage length: {:.2f}'.format(
-        #         i_episode, t, running_time
-        #     ))
-        print('time about update model', end2-end1)
+            if step > 10 and sum(action_rewards) > 2: # 每10次就去update模型一下
+                # action_value_pairs = [ {
+                #     'log_prob':action_value_pair.log_prob.data.item(),
+                #     'value':action_value_pair.value.data.item(),
+                # }  for action_value_pair in model.episode_actions]
+                # action_rewards = model.episode_rewards
+                # states.pop() # 去掉最后一个多余的状态！
+                end1 = time.time()
+                print('time about interactive: ', end1-start)
+                update_model(states, probs_list, actions, action_rewards, model)
+                episode_reward.append(sum(action_rewards))
+                print('{} rewards is {}'.format(i_episode, episode_reward[-1]), episode_reward)
+                end2 = time.time()
+                print('time about update model', end2-end1)
+                step = 0
+                states.clear()
+                probs_list.clear()
+                actions.clear()
+                action_rewards.clear()
 
 
-def update_model(states, probs_list, actions, action_value_pairs, action_rewards, model):
+
+def update_model(states, probs_list, actions, action_rewards, model):
     ''' 网络传输 action_value_pairs, action_reward 并且 接受model params update model
     '''
     data = {
         'states':states,
         'actions':actions,
         'probs_list':probs_list,
-        'action_value_pairs':action_value_pairs,
+        # 'action_value_pairs':action_value_pairs,
         'action_rewards': action_rewards,
     }
     data = json.dumps(data) # 序列化
