@@ -35,7 +35,8 @@ def multi_list2dict(multi_list):  # 多维list 2 dict
             },
 
 
-def send_status_recv_parameter(states, actions, rewards, masks, dist_probs):
+def send_status_recv_parameter(states, actions, rewards, masks, dist_probs, url_tail):
+    # print(dist_probs)
     status = {'states': multi_list2dict(states),  # 返回了一个 list，取第一个即可
               'actions': multi_list2dict(actions),
               'rewards': multi_list2dict(rewards),
@@ -43,10 +44,14 @@ def send_status_recv_parameter(states, actions, rewards, masks, dist_probs):
               'masks': multi_list2dict(masks),
               #   'log_probs': multi_list2dict(log_probs),
               #   'entropy':entropy,
-              'dist_probs': multi_list2dict(dist_probs),
+            #   'dist_probs': multi_list2dict(dist_probs),
+              'mu_s':multi_list2dict([v['mu'] for v in  dist_probs]),
+              'std_s':multi_list2dict([v['std'] for v in  dist_probs]),
               }
     status = json.dumps(status)
-    req = requests.post(url_head+'sendStatus', data=status)
+    # print(status['dist_probs'])
+    req = requests.post(url_head+url_tail, data=status)
+    # print(req.text)
     return json.loads(req.text)
 
 

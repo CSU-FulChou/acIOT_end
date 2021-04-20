@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
+from torch.distributions import Normal
 import matplotlib.pyplot as plt
 import time
 import requests
@@ -25,10 +26,10 @@ def make_env():
 
 
 # 从服务端获取参数：
-a2c_env_param = json.loads(requests.get(
-    url_head+'get_a2c_env_param').text)
-num_envs = a2c_env_param['num_envs']
-env_name = a2c_env_param['env_name']
+gae_env_param = json.loads(requests.get(
+    url_head+'get_gae_env_param').text)
+num_envs = gae_env_param['num_envs']
+env_name = gae_env_param['env_name']
 envs = [make_env() for i in range(num_envs)]
 envs = SubprocVecEnv(envs)
 # envs_test = SubprocVecEnv([make_env() for i in range(num_envs)])
@@ -43,7 +44,7 @@ def test_env(model, vis=False):
     total_reward = 0
     while not done:
         state = torch.FloatTensor(state).unsqueeze(0).to(device)
-        dist = model(state)
+        dist, _, _ = model(state)
         next_state, reward, done, _ = env.step(dist.sample().cpu().numpy()[0])
         state = next_state
         if vis:
@@ -57,9 +58,13 @@ def plot(frame_idx, rewards):
     plt.subplot(131)
     plt.title('frame %s. reward: %s' % (frame_idx, rewards[-1]))
     plt.plot(rewards)
-    # plt.savefig('frame %s. reward: %s.jpg' % (frame_idx, rewards[-1]))
-    plt.show()
+    plt.savefig('gae_result/frame %s. reward: %s.jpg' % (frame_idx, rewards[-1]))
+    # plt.show()
 
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        nn.init.normal_(m.weight, mean=0., std=0.1)
+        nn.init.constant_(m.bias, 0.1)
 
 # actor model
 class Actor(nn.Module):
@@ -74,27 +79,31 @@ class Actor(nn.Module):
             nn.Linear(hidden_size // reduce_factor, num_outputs),
             nn.Softmax(dim=1),
         )
+        self.log_std = nn.Parameter(torch.ones(1, num_outputs) * std)
+        self.apply(init_weights)
 
     def forward(self, x):
-        probs = self.actor(x)
-        dist = Categorical(probs)
-        return dist
+        mu    = self.actor(x)
+        std   = self.log_std.exp().expand_as(mu)
+        dist  = Normal(mu, std)
+        return dist, mu, std
 
 
 num_inputs = envs.observation_space.shape[0]
-num_outputs = envs.action_space.n
+num_outputs = envs.action_space.shape[0]
+# print(num_inputs, num_outputs,'!!!')
 
 # Hyper params:
-hidden_size = a2c_env_param['hidden_size']
-num_steps = a2c_env_param['num_steps']
-reduce_factor = a2c_env_param['reduce_factor']
+hidden_size = gae_env_param['hidden_size']
+num_steps = gae_env_param['num_steps']
+reduce_factor = gae_env_param['reduce_factor']
 stop_t = 0  # 大于195 3次即认为模型 训练ok
-stop_max = a2c_env_param['stop_max']
-target = a2c_env_param['target']
+stop_max = gae_env_param['stop_max']
+target = gae_env_param['target']
 model = Actor(num_inputs, num_outputs, hidden_size, reduce_factor).to(device)
-summary(model,input_size=((1,4)))
+summary(model,input_size=((1,3)))
 
-max_frames = 80000
+max_frames = gae_env_param['max_frames']
 frame_idx = 0
 test_rewards = []
 
@@ -113,8 +122,9 @@ while frame_idx < max_frames:
     for _ in range(num_steps):
         states.append(state.tolist())  # add 2 buffer
         state = torch.FloatTensor(state).to(device)
-        dist = model(state)
-        dist_probs.append(dist.probs.data.tolist())
+        dist, mu ,std = model(state)
+        dist_probs.append({'mu':mu.data.tolist(),
+                            'std':std.data.tolist()})
         action = dist.sample()
         actions.append(action.tolist())
         next_state, reward, done, _ = envs.step(action.cpu().numpy())
@@ -126,9 +136,10 @@ while frame_idx < max_frames:
         next_states.append(next_state.tolist())
         state = next_state
         frame_idx += 1
-        if frame_idx % 100 == 0:
+        if frame_idx % 1000 == 0:
             test_rewards.append(np.mean([test_env(model) for _ in range(10)]))
             print('frame_idx: ', frame_idx, test_rewards)
+            plot(frame_idx,test_rewards)
             if test_rewards[-1] >= target:
                 stop_t += 1
             else:
@@ -140,7 +151,7 @@ while frame_idx < max_frames:
     states.append(state.tolist())
     entropy = entropy.item()
     parameters = send_status_recv_parameter(
-        states, actions, rewards, masks, dist_probs,'sendStatus')
+        states, actions, rewards, masks, dist_probs,'gae_update_model')
     # update parameters:
     model_parameters = model.state_dict()
     parameters = {k: torch.FloatTensor(v) for k, v in parameters.items()}
