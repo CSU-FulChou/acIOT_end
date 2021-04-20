@@ -12,6 +12,7 @@ from torch.distributions import Normal
 import matplotlib.pyplot as plt
 import json
 import requests
+from http_client import url_head
 
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
@@ -112,8 +113,10 @@ def ddpg_update():
     更新模型，获取新的 PolicyNetword的参数
     '''
     pass
-def init_policy_net():
-    pass
+def update_policy_net(policy_net):
+    params = json.loads(requests.get(url_head+'ddpg_policy_init').text) 
+    params = {k:torch.Tensor(v) for k,v in params.items()}
+    policy_net.load_state_dict(params)
 
 
 if __name__ == '__main__':
@@ -123,6 +126,9 @@ if __name__ == '__main__':
     action_dim = env.action_space.shape[0]
     hidden_dim = 256
     policy_net = PolicyNetwork(state_dim, action_dim, hidden_dim).to(device)
+    # policy_net.state_dict()
+    # policy_net.load_state_dict()
+    update_policy_net(policy_net)
     max_frames  = 12000
     max_steps   = 500
     frame_idx   = 0
