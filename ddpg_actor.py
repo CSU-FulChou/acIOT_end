@@ -3,6 +3,7 @@ import random
 
 import gym
 import numpy as np
+from numpy.lib.function_base import append
 
 import torch
 import torch.nn as nn
@@ -13,6 +14,7 @@ import matplotlib.pyplot as plt
 import json
 import requests
 from http_client import url_head
+from torchsummary import summary
 
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
@@ -70,7 +72,8 @@ def plot(frame_idx, rewards):
     plt.subplot(131)
     plt.title('frame %s. reward: %s' % (frame_idx, rewards[-1]))
     plt.plot(rewards)
-    plt.show()
+    plt.savefig('ddpg_result/frame %s. reward: %s.jpg' % (frame_idx, rewards[-1]))
+    # plt.show()
 
 
 class PolicyNetwork(nn.Module): # actor
@@ -98,43 +101,71 @@ class PolicyNetwork(nn.Module): # actor
 
 def post_data(state, action, reward, next_state, done):
     data = {
-        'state':state,
-        'action':action,
+        'state':state.tolist(),
+        'action':action.tolist(),
         'reward':reward,
-        'next_state':next_state,
+        'next_state':next_state.tolist(),
         'done':done,
     }
     data = json.dumps(data)
-    print(data)
-    # requests.post()
+    requests.post(url_head+'add2replay_buffer',data)
 
-def ddpg_update():
+def ddpg_update(policy_net):
     '''
     更新模型，获取新的 PolicyNetword的参数
     '''
-    pass
+    requests.get(url_head+'ddpg_update')
+    update_policy_net(policy_net)
+
 def update_policy_net(policy_net):
-    params = json.loads(requests.get(url_head+'ddpg_policy_init').text) 
+    params = json.loads(requests.get(url_head+'ddpg_policy_update').text) 
     params = {k:torch.Tensor(v) for k,v in params.items()}
     policy_net.load_state_dict(params)
 
 
+def test_model(policy_net):
+    state = env.reset()
+    ou_noise.reset()
+    test_reward = 0
+    max_steps = 200
+    for step in range(max_steps):
+        action = policy_net.get_action(state)
+        # action = ou_noise.get_action(action, step) 不添加时间噪声了，你不需要进行 exploitation
+        next_state, reward, done, _ = env.step(action)
+        state = next_state
+        test_reward += reward
+        if done: return test_reward
+    return test_reward
+
+def get_predicit_time(policy_net):
+    predict_times = []
+    for _ in range(10000):
+        state = env.reset()
+        t1 = time.perf_counter()
+        action = policy_net.get_action(state)
+        t2 = time.perf_counter()
+        predict_times.append(t2-t1)
+    return np.mean(predict_times)
+        
+
 if __name__ == '__main__':
     env = NormalizedActions(gym.make("Pendulum-v0"))
+    state = env.reset()
     ou_noise = OUNoise(env.action_space)
     state_dim  = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
-    hidden_dim = 256
+    hidden_dim = 256//2
     policy_net = PolicyNetwork(state_dim, action_dim, hidden_dim).to(device)
-    # policy_net.state_dict()
-    # policy_net.load_state_dict()
     update_policy_net(policy_net)
-    max_frames  = 12000
+    summary(policy_net,input_size=(1,state_dim))
+    max_frames  = 120000
     max_steps   = 500
     frame_idx   = 0
     rewards     = []
     batch_size  = 128 # mean: 每次更新的动作 数
     post_t      = 0
+    train_times = []
+    test_rewards = []
     while frame_idx < max_frames:
         
         state = env.reset()
@@ -144,15 +175,17 @@ if __name__ == '__main__':
         for step in range(max_steps):
             action = policy_net.get_action(state) # 修改 cheng
             action = ou_noise.get_action(action, step)
-            print('actions:',action)
             next_state, reward, done, _ = env.step(action)
-            
             # post to trainer:
             post_data(state, action, reward, next_state, done)
             post_t += 1
             if post_t > batch_size:
-                # ddpg_update(batch_size) # updata
-                pass
+                import time
+                t1 = time.perf_counter()
+                ddpg_update(policy_net) # updata policy_net
+                t2 = time.perf_counter()
+                train_times.append(t2-t1)
+                # print(' ddpg_update time: {}'.format(t2-t1)) # 0.08 - 0.09
             
             state = next_state
             episode_reward += reward
@@ -164,5 +197,13 @@ if __name__ == '__main__':
             if done:
                 break
         
+        test_reward = np.mean([test_model(policy_net) for _ in range(10)])
+        test_rewards.append(test_reward)
+        print('test avg 10 reward:',test_reward)
+        if test_reward >= -100:
+            torch.save(policy_net,'ddpg_model.pth')
+            print('average train time: ',np.mean(train_times))
+            break 
         rewards.append(episode_reward)
-
+    print( get_predicit_time(policy_net) )
+    print(test_rewards)

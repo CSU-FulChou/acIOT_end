@@ -6,8 +6,8 @@ import json
 #创建一个socket的类,socket.AF_INET指的是IPV4, SOCK_STREAM指的是TCP协议,UDP协议对应socket_DRAM
 # client=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
 
-#连接PC服务器的端口,参数是（IP/域名,端口)
-ServerPort=('192.168.199.128',12525)
+#连接PC服务器的端口,参数是（IP/域名,端口) # 在不同的网络环境下，此ip会不一样
+ServerPort=('192.168.3.22',12525)
 
 
 def send_status_recv_parameter(states ,actions, rewards, next_states, masks):

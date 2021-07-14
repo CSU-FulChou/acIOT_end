@@ -1,5 +1,5 @@
 # -*- coding: UTF-8 -*-
-from http_client import send_status_recv_parameter
+from http_client import send_status_recv_parameter_ac
 from multiprocessing_env import SubprocVecEnv
 import gym
 import numpy as np
@@ -80,6 +80,13 @@ class Actor(nn.Module):
         dist = Categorical(probs)
         return dist
 
+def one_predict_time(model):
+    state = env.reset()
+    state = torch.FloatTensor(state).unsqueeze(0).to(device)
+    s = time.perf_counter()
+    dist = model(state)
+    e = time.perf_counter()
+    print('model predict one time: ',e-s)
 
 num_inputs = envs.observation_space.shape[0]
 num_outputs = envs.action_space.n
@@ -100,6 +107,7 @@ test_rewards = []
 
 start = time.time()
 state = envs.reset()
+www_times = []
 while frame_idx < max_frames:
     states = []
     next_states = []
@@ -126,6 +134,10 @@ while frame_idx < max_frames:
         next_states.append(next_state.tolist())
         state = next_state
         frame_idx += 1
+        if frame_idx == 1000:
+            print('使用DRl-IOT训练1000次所花时间',time.time() - start)
+            print('网络用时：',sum(www_times))
+            break
         if frame_idx % 100 == 0:
             test_rewards.append(np.mean([test_env(model) for _ in range(10)]))
             print('frame_idx: ', frame_idx, test_rewards)
@@ -139,12 +151,18 @@ while frame_idx < max_frames:
         break
     states.append(state.tolist())
     entropy = entropy.item()
-    parameters = send_status_recv_parameter(
+    # 网络操作耗时：
+    www_time = time.time()
+    parameters = send_status_recv_parameter_ac(
         states, actions, rewards, masks, dist_probs,'sendStatus')
+    one_time = time.time()-www_time
+    www_times.append(one_time)
+    # print('一次网络操作耗时：',one_time)
     # update parameters:
     model_parameters = model.state_dict()
     parameters = {k: torch.FloatTensor(v) for k, v in parameters.items()}
     model_parameters.update(parameters)
     model.load_state_dict(model_parameters)
     end = time.time()
-    print('time: ', end - start, '\n')
+    # print('训练一次所需时间time: ', end - start, '\n')
+one_predict_time(model)
